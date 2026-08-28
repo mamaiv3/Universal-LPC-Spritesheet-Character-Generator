@@ -334,108 +334,107 @@ export function selectItem(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Random Human / Villager Maker
+// Random Human / Villager Maker — Human-only filter
 // ─────────────────────────────────────────────────────────────────────────────
 
 type RandomHumanMode = "human" | "male" | "female" | "villager";
 
-const HUMAN_OPTIONAL_TYPES = new Set([
-  "hair",
-  "eyebrows",
-  "eyes",
-  "expression",
-  "torso",
-  "legs",
-  "shoes",
-  "vest",
-  "cape",
-  "shoulders",
-  "arms",
+const HUMAN_TYPES = new Set([
+  "hair", "eyebrows", "eyes", "expression", "torso", "legs", "shoes",
+  "vest", "cape", "shoulders", "arms", "back", "backpack", "tool",
 ]);
 
-const VILLAGER_TYPES = new Set([
-  "hair",
-  "eyebrows",
-  "eyes",
-  "expression",
-  "torso",
-  "legs",
-  "shoes",
-  "vest",
-]);
-
-const VILLAGER_BLOCKLIST = /weapon|sword|axe|spear|bow|gun|shield|armou?r|chainmail|plate|helmet|fantasy|monster|elf|orc|goblin|dwarf|dragon|animal/i;
+const BAD_RANDOM = /alien|cyclops|orc|goblin|elf|dwarf|dragon|monster|animal|zombie|skeleton|undead|one.?eye|tentacle/i;
+const VILLAGER_BAD = /weapon|sword|spear|bow|gun|shield|armor|armour|chainmail|plate|helmet/i;
 
 function pickRandom<T>(items: T[]): T | null {
-  if (items.length === 0) return null;
-  return items[Math.floor(Math.random() * items.length)];
+  return items.length ? items[Math.floor(Math.random() * items.length)] : null;
 }
 
-function pickVariant(item: { variants: string[]; recolors: { variants: string[] }[] }): string | null {
-  const variants = item.variants.length > 0
+function pickSafeVariant(item: { variants: string[]; recolors: { variants: string[] }[] }): string | null {
+  const variants = item.variants.length
     ? item.variants
     : (item.recolors[0]?.variants ?? []);
-  return pickRandom(variants);
+  if (!variants.length) return null;
+
+  // Prefer normal human palettes when available.
+  const human = variants.filter(v => /^(light|medium|dark|tan|brown|black)$/i.test(v));
+  return pickRandom(human.length ? human : variants);
 }
 
-/** Creates a human-only character. Use mode "villager" for simple NPC clothing. */
+function allItems(indexes: any): any[] {
+  return Object.values(indexes.byTypeName).flat() as any[];
+}
+
+function findHumanHead(items: any[], gender: string): any | undefined {
+  const g = gender.toLowerCase();
+  return items.find(i =>
+    /human/i.test(`${i.itemId} ${i.name}`) &&
+    new RegExp(g, "i").test(`${i.itemId} ${i.name}`)
+  );
+}
+
+/** Human-only randomizer. It deliberately rejects alien/cyclops/monster items. */
 export function randomizeHuman(state: State, mode: RandomHumanMode = "human"): void {
   if (!configuredCatalog || !configuredCatalog.isIndexReady()) return;
 
   const indexes = configuredCatalog.getMetadataIndexes().unwrapOr(null);
   if (!indexes) return;
 
-  const gender = mode === "male" ? "male" : mode === "female" ? "female" : Math.random() < 0.5 ? "male" : "female";
+  const gender = mode === "male"
+    ? "male"
+    : mode === "female"
+      ? "female"
+      : Math.random() < 0.5 ? "male" : "female";
+
   state.bodyType = gender;
   state.selections = {};
 
-  // Human body is always required.
-  const body = indexes.byTypeName["body"]?.find((item) => item.itemId === "body")
-    ?? indexes.byTypeName["body"]?.[0];
+  const items = allItems(indexes);
+
+  // BODY: explicitly use Body_Color / body and prefer a normal skin tone.
+  const body = items.find(i =>
+    /^body$/i.test(i.typeName ?? "") &&
+    /body.*color|body/i.test(`${i.itemId} ${i.name}`)
+  ) ?? indexes.byTypeName["body"]?.[0];
+
   if (body) {
-    const variant = pickVariant(body) ?? "light";
+    const variant = pickSafeVariant(body) ?? "light";
     selectItem(state, body.itemId, variant);
   }
 
-  // Human head is always required. Prefer the matching male/female human head.
-  const heads = indexes.byTypeName["head"] ?? indexes.byTypeName["heads"] ?? [];
-  const headId = gender === "male" ? "heads_human_male" : "heads_human_female";
-  const head = heads.find((item) => item.itemId === headId)
-    ?? Object.values(indexes.byTypeName).flat().find((item) => item.itemId === headId)
-    ?? heads.find((item) => /human/i.test(item.name));
+  // HEAD: HUMAN + selected gender only. Never fall back to alien heads.
+  const head = findHumanHead(items, gender);
   if (head) {
-    const variant = pickVariant(head) ?? "light";
-    selectItem(state, head.itemId, variant);
+    selectItem(state, head.itemId, pickSafeVariant(head) ?? "light");
   }
 
-  // Neutral/default face keeps NPCs looking normal.
-  const neutralFace = Object.values(indexes.byTypeName).flat().find(
-    (item) => item.itemId === "face_neutral",
-  );
-  if (neutralFace) {
-    const variant = pickVariant(neutralFace) ?? "light";
-    selectItem(state, neutralFace.itemId, variant);
-  }
+  // Optional clothing/features only.
+  for (const [typeName, group] of Object.entries(indexes.byTypeName) as [string, any[]][]) {
+    const normalized = typeName.toLowerCase();
+    if (!HUMAN_TYPES.has(normalized)) continue;
 
-  const allowedTypes = mode === "villager" ? VILLAGER_TYPES : HUMAN_OPTIONAL_TYPES;
+    if (Math.random() < (mode === "villager" ? 0.18 : 0.28)) continue;
 
-  for (const [typeName, items] of Object.entries(indexes.byTypeName)) {
-    if (!allowedTypes.has(typeName)) continue;
-    if (items.length === 0) continue;
+    let candidates = group.filter(item => {
+      const text = `${item.itemId} ${item.name}`;
+      if (BAD_RANDOM.test(text)) return false;
+      if (mode === "villager" && VILLAGER_BAD.test(text)) return false;
+      return true;
+    });
 
-    // Keep some slots empty so villagers/NPCs don't look overloaded.
-    if (Math.random() < (mode === "villager" ? 0.25 : 0.35)) continue;
-
-    const candidates = mode === "villager"
-      ? items.filter((item) => !VILLAGER_BLOCKLIST.test(`${item.itemId} ${item.name}`))
-      : items;
+    // Eyes must never be cyclops/monster.
+    if (normalized === "eyes") {
+      candidates = candidates.filter(item =>
+        /human|default|normal|eyes/i.test(`${item.itemId} ${item.name}`)
+      );
+    }
 
     const item = pickRandom(candidates);
     if (!item) continue;
 
-    const variant = pickVariant(item);
-    if (variant === null) continue;
-    selectItem(state, item.itemId, variant);
+    const variant = pickSafeVariant(item);
+    if (variant !== null) selectItem(state, item.itemId, variant);
   }
 
   getStateDeps().redraw();
