@@ -339,145 +339,35 @@ export function selectItem(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Random Human Maker — COMPLETE REQUIRED CATEGORIES
-// Every listed category is attempted; no random category skipping.
+// Simple Random Character — NO Human filter
 // ─────────────────────────────────────────────────────────────────────────────
-
-type RandomHumanMode = "human" | "male" | "female" | "villager";
-
-const HUMAN_CATEGORIES = [
-  ["body", "body color", "shadow"],
-  ["head", "heads"],
-  ["face", "faces"],
-  ["ear", "ears"],
-  ["nose"],
-  ["wrinkle", "wrinkles"],
-  ["hair"],
-  ["headwear", "hat"],
-  ["arm", "arms"],
-  ["torso"],
-  ["leg", "legs"],
-  ["feet", "foot"],
-  ["tool", "tools"],
-] as const;
-
-const BAD_RANDOM =
-  /alien|cyclops|special.?eyes|one.?eye|orc|goblin|dragon|monster|animal|zombie|skeleton|undead|tentacle/i;
 
 function pickRandom<T>(items: T[]): T | null {
   return items.length ? items[Math.floor(Math.random() * items.length)] : null;
 }
 
-function normalize(value: string): string {
-  return value.toLowerCase().replace(/[_-]/g, " ").trim();
-}
-
-function itemText(item: any): string {
-  return normalize(`${item.itemId ?? ""} ${item.name ?? ""} ${item.type_name ?? ""}`);
-}
-
-function getVariant(item: any): string | null {
-  const variants = item.variants?.length
-    ? item.variants
-    : (item.recolors?.flatMap((r: any) => r.variants ?? []) ?? []);
-  return pickRandom(variants);
-}
-
-function getCategoryItems(indexes: any, aliases: readonly string[]): any[] {
-  const all = Object.values(indexes.byTypeName).flat() as any[];
-
-  return all.filter(item => {
-    const type = normalize(item.type_name ?? "");
-    const text = itemText(item);
-
-    const match = aliases.some(alias => {
-      const a = normalize(alias);
-      return type === a || type.includes(a) || a.includes(type);
-    });
-
-    return match && !BAD_RANDOM.test(text);
-  });
-}
-
-function selectRequiredCategory(
-  state: State,
-  indexes: any,
-  aliases: readonly string[],
-): void {
-  const item = pickRandom(getCategoryItems(indexes, aliases));
-  if (!item) return;
-
-  const variant = getVariant(item);
-  if (variant !== null) selectItem(state, item.itemId, variant);
-}
-
-function selectHumanHead(
-  state: State,
-  indexes: any,
-  gender: "male" | "female",
-): void {
-  const all = Object.values(indexes.byTypeName).flat() as any[];
-
-  const candidates = all.filter(item => {
-    const text = itemText(item);
-    return text.includes("human") &&
-      text.includes(gender) &&
-      !BAD_RANDOM.test(text);
-  });
-
-  const item = pickRandom(candidates);
-  if (!item) return;
-
-  const variants = item.variants?.length
-    ? item.variants
-    : (item.recolors?.flatMap((r: any) => r.variants ?? []) ?? []);
-
-  const skin = variants.filter((v: string) =>
-    /light|medium|dark|tan|brown/i.test(v)
-  );
-
-  selectItem(
-    state,
-    item.itemId,
-    pickRandom(skin.length ? skin : variants) ?? "light",
-  );
-}
-
-/** Complete Random Human: all listed categories are selected, never skipped. */
-export function randomizeHuman(
-  state: State,
-  mode: RandomHumanMode = "human",
-): void {
+export function randomizeCharacter(state: State): void {
   if (!configuredCatalog || !configuredCatalog.isIndexReady()) return;
 
   const indexes = configuredCatalog.getMetadataIndexes().unwrapOr(null);
   if (!indexes) return;
 
-  const gender: "male" | "female" =
-    mode === "male" ? "male" :
-    mode === "female" ? "female" :
-    Math.random() < 0.5 ? "male" : "female";
-
-  state.bodyType = gender;
   state.selections = {};
 
-  // 1. Body Type
-  // Body type is represented by state.bodyType above.
+  for (const items of Object.values(indexes.byTypeName) as any[][]) {
+    if (!items?.length) continue;
+    if (Math.random() < 0.35) continue;
 
-  // 2. Body / Body color + shadow
-  selectRequiredCategory(state, indexes, HUMAN_CATEGORIES[0]);
+    const item = pickRandom(items);
+    if (!item) continue;
 
-  // 3. Head / Heads — explicitly Human Male/Female
-  selectHumanHead(state, indexes, gender);
+    const variants = item.variants?.length
+      ? item.variants
+      : (item.recolors?.flatMap((r: any) => r.variants ?? []) ?? []);
 
-  // 4–14. Always attempt every category. NO RANDOM SKIP.
-  for (let i = 2; i < HUMAN_CATEGORIES.length; i++) {
-    selectRequiredCategory(state, indexes, HUMAN_CATEGORIES[i]);
+    const variant = pickRandom(variants);
+    if (variant !== null) selectItem(state, item.itemId, variant);
   }
 
   getStateDeps().redraw();
-}
-
-export function randomizeVillager(state: State): void {
-  randomizeHuman(state, "villager");
 }
