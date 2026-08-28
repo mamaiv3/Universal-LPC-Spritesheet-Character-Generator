@@ -340,8 +340,22 @@ export function selectItem(
 type RandomHumanMode = "human" | "male" | "female" | "villager";
 
 const HUMAN_TYPES = new Set([
-  "hair", "faces", "torso", "legs", "shoes",
-  "vest", "cape", "shoulders", "arms", "back", "backpack", "tool",
+  "body",
+  "body type",
+  "heads",
+  "head",
+  "faces",
+  "ears",
+  "nose",
+  "wrinkles",
+  "hair",
+  "headwear",
+  "arms",
+  "torso",
+  "legs",
+  "feet",
+  "tools",
+  "tool",
 ]);
 
 const BAD_RANDOM = /alien|cyclops|orc|goblin|elf|dwarf|dragon|monster|animal|zombie|skeleton|undead|one.?eye|tentacle/i;
