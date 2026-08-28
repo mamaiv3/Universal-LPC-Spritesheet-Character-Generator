@@ -332,3 +332,35 @@ export function selectItem(
     applyMatchBodyColor(state, variant, !useVariants ? variant : null);
   }
 }
+
+
+/** Randomly selects one compatible catalog item per selection group. */
+export function randomizeCharacter(state: State): void {
+  if (!configuredCatalog || !configuredCatalog.isIndexReady()) return;
+
+  const indexes = configuredCatalog.getMetadataIndexes().unwrapOr(null);
+  if (!indexes) return;
+
+  state.selections = {};
+
+  for (const items of Object.values(indexes.byTypeName)) {
+    if (items.length === 0) continue;
+
+    // Randomly leave some optional groups empty.
+    if (Math.random() < 0.35) continue;
+
+    const item = items[Math.floor(Math.random() * items.length)];
+    const useVariants = item.variants.length > 0;
+    const variants = useVariants
+      ? item.variants
+      : (item.recolors[0]?.variants ?? []);
+
+    if (variants.length === 0) continue;
+
+    const variant = variants[Math.floor(Math.random() * variants.length)];
+    selectItem(state, item.itemId, variant, false);
+  }
+
+  // Keep the normal state/render flow in charge of updating the URL and canvas.
+  getStateDeps().redraw();
+}
