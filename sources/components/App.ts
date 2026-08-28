@@ -1,6 +1,6 @@
 // Main app component
 import m from "mithril";
-import type { State } from "../state/state.ts";
+import { randomizeCharacter, type State } from "../state/state.ts";
 import { syncSelectionsToHash } from "../state/hash.ts";
 import type { CatalogReader } from "../state/catalog.ts";
 import { Download } from "./download/Download.ts";
@@ -63,6 +63,13 @@ export const App: m.Component<AppAttrs, AppState> = {
   view(vnode) {
     const { catalog, state } = vnode.attrs;
     return m("div", [
+      m(
+        "button.button.is-primary.is-fullwidth.mb-4",
+        {
+          onclick: () => randomizeCharacter(state),
+        },
+        "🎲 RANDOM CHARACTER",
+      ),
       m(Download, { catalog, state }),
       m(FiltersPanel, { catalog, state }),
       m(Credits, { catalog, state }),
