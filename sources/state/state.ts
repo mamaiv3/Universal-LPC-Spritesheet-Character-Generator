@@ -333,34 +333,114 @@ export function selectItem(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Random Human / Villager Maker
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** Randomly selects one compatible catalog item per selection group. */
-export function randomizeCharacter(state: State): void {
+type RandomHumanMode = "human" | "male" | "female" | "villager";
+
+const HUMAN_OPTIONAL_TYPES = new Set([
+  "hair",
+  "eyebrows",
+  "eyes",
+  "expression",
+  "torso",
+  "legs",
+  "shoes",
+  "vest",
+  "cape",
+  "shoulders",
+  "arms",
+]);
+
+const VILLAGER_TYPES = new Set([
+  "hair",
+  "eyebrows",
+  "eyes",
+  "expression",
+  "torso",
+  "legs",
+  "shoes",
+  "vest",
+]);
+
+const VILLAGER_BLOCKLIST = /weapon|sword|axe|spear|bow|gun|shield|armou?r|chainmail|plate|helmet|fantasy|monster|elf|orc|goblin|dwarf|dragon|animal/i;
+
+function pickRandom<T>(items: T[]): T | null {
+  if (items.length === 0) return null;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function pickVariant(item: { variants: string[]; recolors: { variants: string[] }[] }): string | null {
+  const variants = item.variants.length > 0
+    ? item.variants
+    : (item.recolors[0]?.variants ?? []);
+  return pickRandom(variants);
+}
+
+/** Creates a human-only character. Use mode "villager" for simple NPC clothing. */
+export function randomizeHuman(state: State, mode: RandomHumanMode = "human"): void {
   if (!configuredCatalog || !configuredCatalog.isIndexReady()) return;
 
   const indexes = configuredCatalog.getMetadataIndexes().unwrapOr(null);
   if (!indexes) return;
 
+  const gender = mode === "male" ? "male" : mode === "female" ? "female" : Math.random() < 0.5 ? "male" : "female";
+  state.bodyType = gender;
   state.selections = {};
 
-  for (const items of Object.values(indexes.byTypeName)) {
-    if (items.length === 0) continue;
-
-    // Randomly leave some optional groups empty.
-    if (Math.random() < 0.35) continue;
-
-    const item = items[Math.floor(Math.random() * items.length)];
-    const useVariants = item.variants.length > 0;
-    const variants = useVariants
-      ? item.variants
-      : (item.recolors[0]?.variants ?? []);
-
-    if (variants.length === 0) continue;
-
-    const variant = variants[Math.floor(Math.random() * variants.length)];
-    selectItem(state, item.itemId, variant, false);
+  // Human body is always required.
+  const body = indexes.byTypeName["body"]?.find((item) => item.itemId === "body")
+    ?? indexes.byTypeName["body"]?.[0];
+  if (body) {
+    const variant = pickVariant(body) ?? "light";
+    selectItem(state, body.itemId, variant);
   }
 
-  // Keep the normal state/render flow in charge of updating the URL and canvas.
+  // Human head is always required. Prefer the matching male/female human head.
+  const heads = indexes.byTypeName["head"] ?? indexes.byTypeName["heads"] ?? [];
+  const headId = gender === "male" ? "heads_human_male" : "heads_human_female";
+  const head = heads.find((item) => item.itemId === headId)
+    ?? Object.values(indexes.byTypeName).flat().find((item) => item.itemId === headId)
+    ?? heads.find((item) => /human/i.test(item.name));
+  if (head) {
+    const variant = pickVariant(head) ?? "light";
+    selectItem(state, head.itemId, variant);
+  }
+
+  // Neutral/default face keeps NPCs looking normal.
+  const neutralFace = Object.values(indexes.byTypeName).flat().find(
+    (item) => item.itemId === "face_neutral",
+  );
+  if (neutralFace) {
+    const variant = pickVariant(neutralFace) ?? "light";
+    selectItem(state, neutralFace.itemId, variant);
+  }
+
+  const allowedTypes = mode === "villager" ? VILLAGER_TYPES : HUMAN_OPTIONAL_TYPES;
+
+  for (const [typeName, items] of Object.entries(indexes.byTypeName)) {
+    if (!allowedTypes.has(typeName)) continue;
+    if (items.length === 0) continue;
+
+    // Keep some slots empty so villagers/NPCs don't look overloaded.
+    if (Math.random() < (mode === "villager" ? 0.25 : 0.35)) continue;
+
+    const candidates = mode === "villager"
+      ? items.filter((item) => !VILLAGER_BLOCKLIST.test(`${item.itemId} ${item.name}`))
+      : items;
+
+    const item = pickRandom(candidates);
+    if (!item) continue;
+
+    const variant = pickVariant(item);
+    if (variant === null) continue;
+    selectItem(state, item.itemId, variant);
+  }
+
   getStateDeps().redraw();
+}
+
+export function randomizeVillager(state: State): void {
+  randomizeHuman(state, "villager");
 }
