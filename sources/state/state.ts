@@ -340,7 +340,7 @@ export function selectItem(
 type RandomHumanMode = "human" | "male" | "female" | "villager";
 
 const HUMAN_TYPES = new Set([
-  "hair", "eyebrows", "eyes", "expression", "torso", "legs", "shoes",
+  "hair", "faces", "torso", "legs", "shoes",
   "vest", "cape", "shoulders", "arms", "back", "backpack", "tool",
 ]);
 
@@ -422,13 +422,6 @@ export function randomizeHuman(state: State, mode: RandomHumanMode = "human"): v
       if (mode === "villager" && VILLAGER_BAD.test(text)) return false;
       return true;
     });
-
-    // Eyes must never be cyclops/monster.
-    if (normalized === "eyes") {
-      candidates = candidates.filter(item =>
-        /human|default|normal|eyes/i.test(`${item.itemId} ${item.name}`)
-      );
-    }
 
     const item = pickRandom(candidates);
     if (!item) continue;
