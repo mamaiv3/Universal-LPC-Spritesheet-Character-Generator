@@ -194,7 +194,7 @@ if ordered_paths:
 
     with col2:
         st.subheader("🖼️ Full Spritesheet")
-        st.image(composited_sheet, caption="832 x 1344 px", use_column_width=True)
+        st.image(composited_sheet, caption="832 x 1344 px", use_container_width=True)
 
     st.markdown("---")
     st.subheader("📥 Muat Turun")
