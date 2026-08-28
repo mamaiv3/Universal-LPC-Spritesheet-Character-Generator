@@ -1,7 +1,6 @@
 import os
 import random
 import io
-import requests
 from PIL import Image
 import streamlit as st
 
@@ -9,17 +8,19 @@ import streamlit as st
 # KONFIGURASI HALAMAN STREAMLIT
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="LPC Character Generator",
+    page_title="LPC Character Generator (Local)",
     page_icon="🎨",
     layout="wide"
 )
 
 # -----------------------------------------------------------------------------
-# KONFIGURASI LPC & ANIMASI
+# KONFIGURASI HIRARKI & SPESIFIKASI LPC
 # -----------------------------------------------------------------------------
 LPC_LAYER_ORDER = [
-    'body', 'head', 'headwear', 'hair', 'arms', 'torso', 
-    'legs', 'feet', 'tools', 'weapons'
+    'shadow', 'body', 'head', 'eyes', 'beards', 'hair', 
+    'torso', 'legs', 'feet', 'arms', 'wrists', 'shoulders', 
+    'neck', 'cape', 'backpack', 'quiver', 'hat', 'facial', 
+    'dress', 'shield', 'tools', 'weapon'
 ]
 
 LPC_ANIM_MAP = {
@@ -41,71 +42,50 @@ DIRECTION_MAP = {
 SHEET_WIDTH = 832
 SHEET_HEIGHT = 1344
 
-REPO_TREE_URL = "https://api.github.com/repos/mamaiv3/Universal-LPC-Spritesheet-Character-Generator/git/trees/master?recursive=1"
-RAW_BASE_URL = "https://raw.githubusercontent.com/mamaiv3/Universal-LPC-Spritesheet-Character-Generator/master/"
+BASE_DIR = "spritesheets"
 
 # -----------------------------------------------------------------------------
-# AMBIL KATALOG FAIL DARI REPOSITORI GITHUB (1 CALL SAHAJA)
+# FUNGSI MEMBACA FOLDER TEMPATAN
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600, show_spinner="Memuat naik katalog fail dari GitHub Repo...")
-def fetch_repo_catalog():
+@st.cache_data(show_spinner="Mengimbas folder spritesheets tempatan...")
+def scan_local_spritesheets():
     catalog = {}
-    headers = {"User-Agent": "StreamlitApp"}
-    
-    # Gunakan token jika dimasuk dalam Streamlit Secrets (pilihan)
-    if "GITHUB_TOKEN" in st.secrets:
-        headers["Authorization"] = f"token {st.secrets['GITHUB_TOKEN']}"
+    if not os.path.exists(BASE_DIR):
+        return catalog
 
-    try:
-        res = requests.get(REPO_TREE_URL, headers=headers, timeout=15)
-        res.raise_for_status()
-        tree_data = res.json().get("tree", [])
+    for root, _, files in os.walk(BASE_DIR):
+        for file in files:
+            if file.endswith(".png"):
+                full_path = os.path.join(root, file)
+                # Ambil laluan relatif dari folder spritesheets
+                rel_path = os.path.relpath(full_path, BASE_DIR)
+                parts = rel_path.split(os.sep)
+                
+                if len(parts) >= 2:
+                    category = parts[0] # Kategori utama (body, hair, torso, etc)
+                    display_name = "/".join(parts[1:]) # Sub-path fail PNG
+                    
+                    if category not in catalog:
+                        catalog[category] = {}
+                    catalog[category][display_name] = full_path
 
-        for item in tree_data:
-            path = item.get("path", "")
-            if path.startswith("sheet_definitions/") and path.endswith(".png"):
-                parts = path.split("/")
-                if len(parts) >= 3:
-                    cat = parts[1]  # Kategori contoh: body, hair, torso
-                    file_name = "/".join(parts[2:]) # Sub-path fail PNG
-                    raw_url = RAW_BASE_URL + path
-
-                    if cat not in catalog:
-                        catalog[cat] = {}
-                    catalog[cat][file_name] = raw_url
-
-    except Exception as e:
-        st.error(f"Gagal membaca repositori: {e}")
-        
     return catalog
-
-@st.cache_data(show_spinner=False)
-def download_image_bytes(url: str):
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            return res.content
-    except Exception:
-        pass
-    return None
 
 # -----------------------------------------------------------------------------
 # FUNGSI PEMPROSESAN GAMBAR & GIF
 # -----------------------------------------------------------------------------
-def composite_spritesheet(selected_urls: list) -> Image.Image:
+def composite_spritesheet(selected_paths: list) -> Image.Image:
     canvas = Image.new("RGBA", (SHEET_WIDTH, SHEET_HEIGHT), (0, 0, 0, 0))
 
-    for url in selected_urls:
-        if url:
-            img_bytes = download_image_bytes(url)
-            if img_bytes:
-                try:
-                    layer_img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-                    if layer_img.size != (SHEET_WIDTH, SHEET_HEIGHT):
-                        layer_img = layer_img.resize((SHEET_WIDTH, SHEET_HEIGHT), Image.Resampling.NEAREST)
-                    canvas = Image.alpha_composite(canvas, layer_img)
-                except Exception:
-                    pass
+    for path in selected_paths:
+        if path and os.path.exists(path):
+            try:
+                layer_img = Image.open(path).convert("RGBA")
+                if layer_img.size != (SHEET_WIDTH, SHEET_HEIGHT):
+                    layer_img = layer_img.resize((SHEET_WIDTH, SHEET_HEIGHT), Image.Resampling.NEAREST)
+                canvas = Image.alpha_composite(canvas, layer_img)
+            except Exception:
+                pass
 
     return canvas
 
@@ -141,12 +121,12 @@ def generate_gif(sheet: Image.Image, anim_name: str, direction_idx: int) -> byte
 # ANTARAMUKA UTAMA STREAMLIT
 # -----------------------------------------------------------------------------
 st.title("🎨 Universal LPC Character Generator")
-st.caption("Direka khas untuk mencipta Spritesheet NPC 2D daripada Repositori LPC")
+st.caption("Penjana Watak NPC 2D (Mod Tempatan / Offline)")
 
-catalog = fetch_repo_catalog()
+catalog = scan_local_spritesheets()
 
 if not catalog:
-    st.warning("⚠️ Tiada aset dijumpai. Sila semak semula sambungan internet atau kuota GitHub API.")
+    st.error(f"❌ Folder '{BASE_DIR}' tidak ditemui di dalam repositori anda.")
     st.stop()
 
 with st.sidebar:
@@ -157,20 +137,19 @@ with st.sidebar:
 
     st.markdown("---")
 
-    selected_urls = {}
+    selected_file_paths = {}
     
-    # Susun mengikut hirarki LPC
+    # Susun kategori mengikut hirarki LPC
     sorted_categories = sorted(
         catalog.keys(),
         key=lambda c: LPC_LAYER_ORDER.index(c) if c in LPC_LAYER_ORDER else 99
     )
 
     for cat in sorted_categories:
-        options = ["-- Kosong --"] + list(catalog[cat].keys())
+        options = ["-- Kosong --"] + sorted(list(catalog[cat].keys()))
 
         if st.session_state.get('random_trigger', False):
-            # 80% peluang pilih item rawak
-            rand_idx = random.randint(1, len(options) - 1) if random.random() < 0.8 else 0
+            rand_idx = random.randint(1, len(options) - 1) if random.random() < 0.7 else 0
             st.session_state[f"select_{cat}"] = options[rand_idx]
 
         selected_val = st.selectbox(
@@ -180,34 +159,34 @@ with st.sidebar:
         )
 
         if selected_val != "-- Kosong --":
-            selected_urls[cat] = catalog[cat][selected_val]
+            selected_file_paths[cat] = catalog[cat][selected_val]
         else:
-            selected_urls[cat] = None
+            selected_file_paths[cat] = None
 
     if 'random_trigger' in st.session_state:
         st.session_state['random_trigger'] = False
 
-# Susun URL mengikut urutan lapisan LPC yang betul
-ordered_urls = []
+# Susun laluan fail mengikut hirarki lapisan LPC
+ordered_paths = []
 for cat in LPC_LAYER_ORDER:
-    if cat in selected_urls and selected_urls[cat]:
-        ordered_urls.append(selected_urls[cat])
+    if cat in selected_file_paths and selected_file_paths[cat]:
+        ordered_paths.append(selected_file_paths[cat])
 
-for cat, url in selected_urls.items():
-    if cat not in LPC_LAYER_ORDER and url:
-        ordered_urls.append(url)
+for cat, path in selected_file_paths.items():
+    if cat not in LPC_LAYER_ORDER and path:
+        ordered_paths.append(path)
 
 # Paparan Utama
 col1, col2 = st.columns([1, 1])
 
-if ordered_urls:
+if ordered_paths:
     with col1:
         st.subheader("🎬 Animasi Watak")
         anim_name = st.selectbox("Jenis Animasi:", list(LPC_ANIM_MAP.keys()))
         direction_name = st.selectbox("Arah Pandangan:", list(DIRECTION_MAP.keys()))
         direction_idx = DIRECTION_MAP[direction_name]
 
-        composited_sheet = composite_spritesheet(ordered_urls)
+        composited_sheet = composite_spritesheet(ordered_paths)
         gif_bytes = generate_gif(composited_sheet, anim_name, direction_idx)
 
         st.markdown("#### 👁️ Pratonton Live")
@@ -253,4 +232,4 @@ if ordered_urls:
         use_container_width=True
     )
 else:
-    st.info("👈 Sila pilih sekurang-kurangnya satu lapisan (contoh: Body) di menu sidebar kiri.")
+    st.info("👈 Sila pilih sekurang-kurangnya satu lapisan (contoh: Body) di sidebar kiri.")
